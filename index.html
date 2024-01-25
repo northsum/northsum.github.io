@@ -1,1 +1,426 @@
-hello world
+<!DOCTYPE html>
+
+<html lang="ja">
+    <head>
+        <meta charset="utf-8">
+        <script src="https://pixijs.download/release/pixi.min.js"></script>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f0f0f0;
+            }
+    
+            h1 {
+                color: #333;
+                text-align: center;
+                margin-top: 20px;
+            }
+    
+            #label-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                margin-top: 20px;
+            }
+    
+            button {
+                padding: 10px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+            }
+    
+            button:hover {
+                background-color: #45a049;
+            }
+    
+            canvas {
+                display: block;
+                margin: auto;
+                border: 2px solid #333;
+                margin-top: 20px;
+            }
+    
+            #startText {
+                font-size: 18px;
+                text-align: center;
+                margin-top: 20px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>hello, this is BWM!</h1>
+        <div id="label-container"></div>
+
+        <div>Teachable Machine Audio Model</div>
+        <div>Please push start button on, and wait for ui change</div>
+        <button type="button" onclick="init()">Start</button>
+        <div id="label-container"></div>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
+        
+        <script type="text/javascript">
+            // more documentation available at
+            // https://github.com/tensorflow/tfjs-models/tree/master/speech-commands
+        
+            // the link to your model provided by Teachable Machine export panel
+            const url = "https://teachablemachine.withgoogle.com/models/ONB-pu59D/";
+        
+            async function createModel() {
+                const checkpointURL = url + "model.json"; // model topology
+                const metadataURL = url + "metadata.json"; // model metadata
+        
+                const recognizer = speechCommands.create(
+                    "BROWSER_FFT", // fourier transform type, not useful to change
+                    undefined, // speech commands vocabulary feature, not useful for your models
+                    checkpointURL,
+                    metadataURL);
+        
+                // check that model and metadata are loaded via HTTPS requests.
+                await recognizer.ensureModelLoaded();
+        
+                return recognizer;
+            }
+
+            let res = []
+
+            async function init() {
+                const recognizer = await createModel();
+                const classLabels = recognizer.wordLabels(); // get class labels
+                const labelContainer = document.getElementById("label-container");
+                for (let i = 0; i < classLabels.length; i++) {
+                    labelContainer.appendChild(document.createElement("div"));
+                }
+        
+                // listen() takes two arguments:
+                // 1. A callback function that is invoked anytime a word is recognized.
+                // 2. A configuration object with adjustable fields
+                recognizer.listen(result => {
+                    const scores = result.scores; // probability of prediction for each class
+                    res = [];
+                    for (let i=0; i<scores.length; i++) {
+                        res.push([classLabels[i], scores[i]]);
+                    }
+                    // render the probability scores per class
+                    for (let i = 0; i < classLabels.length; i++) {
+                        const classPrediction = classLabels[i] + ": " + result.scores[i].toFixed(2);
+                        labelContainer.childNodes[i].innerHTML = classPrediction;
+                    }
+                }, {
+                    includeSpectrogram: true, // in case listen should return result.spectrogram
+                    probabilityThreshold: 0.75,
+                    invokeCallbackOnNoiseAndUnknown: true,
+                    overlapFactor: 0.50 // probably want between 0.5 and 0.75. More info in README
+                });
+        
+                // Stop the recognition in 5 seconds.
+                // setTimeout(() => recognizer.stopListening(), 5000);
+            }
+
+            let app = new PIXI.Application({
+                width: 256,
+                height: 176,
+            });
+
+            const sand_texture = PIXI.Texture.from('assets/kusa-tuti.png');
+            const sea_texture = PIXI.Texture.from('assets/mizu2.png');
+
+            class Field {
+                constructor(field) {
+                    this.field = field;
+                    for (let i = 0; i < field.length; i++) {
+                        for (let j = 0; j < field[i].length; j++) {
+                            let sprite = new PIXI.Sprite(this.field[i][j] === 0 ? sand_texture : sea_texture);
+                            if (field[i][j] === 0) {
+                                sprite.x = j*16;
+                                sprite.y = i*16 - 64;
+                            } else {
+                                sprite.x = j*16;
+                                sprite.y = i*16 - 64;
+                            }
+                            app.stage.addChild(sprite);
+                            if (field[i][j] === 0) {
+                                const mask = new PIXI.Graphics()
+                                    .beginFill(0xffffff)
+                                    .drawRect(j * 16, i * 16, 16, 16)
+                                    .endFill();
+                                app.stage.addChild(mask);
+                                sprite.mask = mask;
+                            } else {
+                                const mask = new PIXI.Graphics()
+                                    .beginFill(0xffffff)
+                                    .drawRect(j * 16, i * 16, 16, 16)
+                                    .endFill();
+                                app.stage.addChild(mask);
+                                sprite.mask = mask;
+                            }
+                        }
+                    }
+                    // フィールドでi,j,w,hのスプライトが、水に浸かっているかどうかを判定する
+                    this.is_touchedv = (i,j,w,h,v) => {
+                        let idx = Math.floor(i/16);
+                        let jdx = Math.floor(j/16);
+                        let wdx = Math.ceil(w/16);
+                        let hdx = Math.ceil(h/16);
+                        for (let k = idx; k < idx + wdx; k++) {
+                            for (let l = jdx; l < jdx + hdx; l++) {
+                                if (this.field[l][k] === v) {
+                                    console.log(idx, jdx, wdx, hdx)
+                                    console.log(l,k)
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }
+                }
+
+                change_field(f) {
+                    this.field = f;
+                }
+            }
+            // フィールドマップ 1:海 0:砂
+            const easy_field = [
+                [0 , 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0 , 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0 , 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0 , 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0 , 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0 , 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1 , 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1 , 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1 , 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1 , 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1 , 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ]
+            const field = [
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0],
+                [1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0],
+                [1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+                [1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+                [1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                [1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                [1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+                [1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0],
+                [1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+            ]
+            const f = new Field(easy_field);
+            document.body.appendChild(app.view);
+
+
+            const State = {
+                start: 'start',
+                playing: 'playing',
+                clear: 'clear',
+                gameover: 'gameover'
+            }
+            let game_state = State.start;
+
+            class Player {
+                constructor(x,y) {
+                    this.apperence_url = './assets/up_arrow.jpeg';
+                    let texture = PIXI.Texture.from(this.apperence_url);
+                    this.appearance = new PIXI.Sprite(texture);
+                    app.stage.addChild(this.appearance);
+
+                    this.start_x = x;
+                    this.start_y = y;
+                    this.x = x;
+                    this.y = y;
+                    this.appearance.x = this.x;
+                    this.appearance.y = this.y;
+                    this.appearance.width = 10;
+                    this.appearance.height = 10;
+                    this.vr = 0;
+                    this.vtheta = 0;
+
+                    this.is_is_water = () => {
+                        const res = f.is_touchedv(this.x, this.y, this.appearance.width, this.appearance.height, 1);
+                        return res;
+                    }
+                }
+
+                restart() {
+                    this.x = this.start_x;
+                    this.y = this.start_y;
+                    this.appearance.x = this.x;
+                    this.appearance.y = this.y;
+                    this.vr = 0;
+                    this.vtheta = 0;
+                }
+
+                update_sprite() {
+                    let appearance_url;
+                    if (this.vtheta < Math.PI/4 || this.vtheta > 7*Math.PI/4) {
+                        appearance_url = './assets/up_arrow.jpeg';
+                    } else if (this.vtheta < 3*Math.PI/4) {
+                        appearance_url = './assets/right_arrow.jpeg';
+                    } else if (this.vtheta < 5*Math.PI/4) {
+                        appearance_url = './assets/down_arrow.jpeg';
+                    } else {
+                        appearance_url = './assets/left_arrow.jpeg';
+                    }
+
+                    if (this.appearance_url !== appearance_url) {
+                        this.appearance.texture = PIXI.Texture.from(appearance_url);
+                        this.apperence_url = appearance_url;
+                    }
+                }
+
+                move() {
+                    this.x += this.vr * Math.cos(this.vtheta);
+                    this.x = Math.min(240, Math.max(0, this.x));
+                    this.y += this.vr * Math.sin(this.vtheta);
+                    this.y = Math.min(160, Math.max(0, this.y));
+
+                    this.appearance.x = this.x;
+                    this.appearance.y = this.y;
+                    this.update_sprite();
+                }
+                
+                // 1:right 2:left 3:go 4:stop 5:confused
+                control(typ, val) {
+                    switch (typ) {
+                        case 2:
+                            this.vtheta += val;
+                            if (this.vtheta > 2*Math.PI)
+                                this.vtheta -= 2*Math.PI;
+                            break;
+                        case 1:
+                            this.vtheta -= val;
+                            if (this.vtheta < 0)
+                                this.vtheta += 2*Math.PI;
+                            break;
+                        case 3:
+                            this.vr += val;
+                            break;
+                        case 4:
+                            this.vr = 0;
+                            break;
+                        case 5:
+                            this.vr += Math.random()*2-1
+                            this.vtheta += Math.random()-0.5;
+                            if (this.vtheta > 2*Math.PI)
+                                this.vtheta -= 2*Math.PI;
+                            if (this.vtheta < 0)
+                                this.vtheta += 2*Math.PI;
+                            break;
+                    }
+                    this.vr = Math.max(0, Math.min(10, this.vr));
+                }
+            }
+
+            class Watermelon {
+                constructor(x,y) {
+                    this.appearance = PIXI.Sprite.from('./assets/watermelon.jpeg');
+                    app.stage.addChild(this.appearance);
+
+                    this.x = x;
+                    this.y = y;
+                    this.appearance.x = this.x;
+                    this.appearance.y = this.y;
+                    this.appearance.width = 16;
+                    this.appearance.height = 16;
+
+                    this.is_touched_sand = () => {
+                        return f.is_touchedv(this.x, this.y, this.appearance.width, this.appearance.height, 0);
+                    }
+                }
+
+                new_put(x,y) {
+                    this.x = x;
+                    this.y = y;
+                    this.appearance.x = this.x;
+                    this.appearance.y = this.y;
+                }
+                touched_with_player(player) {
+                    return (this.x < player.x + player.width && this.x + this.width > player.x && this.y < player.y + player.height && this.y + this.height > player.y);
+                }
+            }
+
+            let player = new Player(10,10);
+            let watermelon = new Watermelon(200,50);
+
+            const gameStart = () => {
+                player.restart();
+                game_state = State.playing;
+                startText.visible = false;
+            }
+
+            // start button
+            let startText = new PIXI.Text('Tap to start');
+            startText.x = 10;
+            startText.y = 10;
+            startText.interactive = true;
+            startText.buttonMode = true;
+            startText.on('pointerdown', gameStart);
+            app.stage.addChild(startText);
+
+            let cnt = 0;
+            app.ticker.add((delta) => {
+                cnt = (cnt + 1)%10;
+                if (!cnt%10)
+                if (game_state === State.start) {
+
+                } else if (game_state === State.playing) {
+                    let maxp = -1;
+                    let maxi = -1;
+                    for (let i=0; i<res.length; i++) {
+                        if (res[i][1] > maxp) {
+                            maxp = res[i][1];
+                            maxi = Number(i);
+                        }
+                    }
+                    console.log(maxp, maxi);
+
+                    if (maxp > 0.7)
+                    switch (maxi) {
+                        case 0: // Break
+                            if (watermelon.touched_with_player(player)) {
+                                game_state = State.clear;
+                            } else {
+                                alert('勢いよく振られた棒は宙を切った')
+                            }
+                            break;
+                        case 1: // Go
+                            player.control(3,1);
+                            break;
+                        case 2: // Left
+                            player.control(2,1);
+                            break;
+                        case 3: // Novoice
+                            break;
+                        case 4: // Right
+                            player.control(1,1);
+                            break;
+                        case 5: // Stop
+                            player.control(4,1);
+                            break;
+                    }
+                    else player.control(5,0);
+                    player.move();
+
+                    if (player.is_is_water()) {
+                        game_state = State.gameover;
+                    }
+                } else if (game_state === State.clear) {
+                    console.log('clear');
+                    game_state = State.start;
+                    startText.visible = true;
+                } else if (game_state === State.gameover) {
+                    console.log('gameover');
+                    game_state = State.start;
+                    startText.visible = true;
+                }
+            })
+
+        </script>
+    </body>
+</html>
